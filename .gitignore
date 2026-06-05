@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+/dashboard/node_modules/
+
+# Next.js Build Output
+.next/
+dashboard/.next/
+out/
+dashboard/out/
+
+# Python Cache & Builds
+__pycache__/
+backend/app/__pycache__/
+backend/app/routes/__pycache__/
+backend/tests/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+backend/.pytest_cache/
+build/
+dist/
+sdk/python/build/
+sdk/python/dist/
+*.egg-info/
+sdk/python/*.egg-info/
+
+# Local SQLite Databases
+*.db
+*.db-fallback
+*.db-journal
+backend/*.db
+backend/*.db-journal
+backend/promptarmor.db
+backend/promptarmor_fallback.db
+
+# Environment Secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+backend/.env
+dashboard/.env
+
+# IDE and System Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

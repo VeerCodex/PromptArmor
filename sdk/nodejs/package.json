@@ -1,0 +1,22 @@
+{
+  "name": "promptarmor",
+  "version": "1.0.0",
+  "description": "Official Node.js SDK for PromptArmor LLM Security platform",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 0"
+  },
+  "keywords": [
+    "llm",
+    "security",
+    "prompt-injection",
+    "jailbreak",
+    "pii",
+    "leakage"
+  ],
+  "author": "PromptArmor Security Team",
+  "license": "MIT"
+}
