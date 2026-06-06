@@ -29,6 +29,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+import traceback
+from fastapi.responses import JSONResponse
+from fastapi import Request
+
+@app.exception_handler(Exception)
+async def debug_exception_handler(request: Request, exc: Exception):
+    tb = traceback.format_exc()
+    logging.error(f"Debug exception handler caught error: {exc}\n{tb}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": str(exc),
+            "traceback": tb.split("\n")
+        }
+    )
+
 # Include Routers
 app.include_router(auth.router, tags=["Authentication & Keys"])
 app.include_router(scan.router, tags=["LLM Security Scanning"])
