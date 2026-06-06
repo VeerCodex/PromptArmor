@@ -10,6 +10,13 @@ from .routes import auth, scan, logs
 # Initialize database schemas
 try:
     Base.metadata.create_all(bind=engine)
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN plan VARCHAR DEFAULT 'Free'"))
+            logging.info("Database plan column added successfully.")
+        except Exception as alt_err:
+            logging.info(f"Database plan column migration skipped (likely already exists): {alt_err}")
     logging.info("Database tables verified/created successfully.")
 except Exception as e:
     logging.error(f"Error creating database tables: {e}")

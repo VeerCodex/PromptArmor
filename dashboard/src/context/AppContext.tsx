@@ -242,6 +242,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const keys = await apiFetch("/api-key");
       setApiKeys(keys);
 
+      // Fetch User profile to sync subscription plan
+      try {
+        const userProfile = await apiFetch("/auth/me");
+        if (userProfile && userProfile.plan) {
+          setSubscriptionPlan(userProfile.plan);
+          localStorage.setItem("promptarmor_plan", userProfile.plan);
+        }
+      } catch (profileErr) {
+        console.error("Failed to fetch user profile", profileErr);
+      }
+
       // Fetch Stats
       const metrics = await apiFetch("/stats");
       setStats({
@@ -254,6 +265,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Fetch Logs
       const logs = await apiFetch("/logs?limit=30");
       setThreatLogs(logs);
+
     } catch (err) {
       console.error("Failed to load dashboard metrics", err);
     } finally {
@@ -313,9 +325,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const changeSubscriptionPlan = (plan: "Free" | "Starter" | "Pro") => {
+  const changeSubscriptionPlan = async (plan: "Free" | "Starter" | "Pro") => {
     setSubscriptionPlan(plan);
     localStorage.setItem("promptarmor_plan", plan);
+
+    const token = getAuthToken();
+    if (token === "mock_jwt_token_for_promptarmor_demo_mode") {
+      return;
+    }
+
+    try {
+      await apiFetch("/auth/plan", {
+        method: "PUT",
+        body: JSON.stringify({ plan }),
+      });
+    } catch (err) {
+      console.error("Failed to update plan on database", err);
+    }
   };
 
   return (

@@ -14,6 +14,7 @@ class UserLogin(BaseModel):
 class UserResponse(BaseModel):
     id: int
     email: str
+    plan: str
     created_at: datetime
 
     class Config:
@@ -25,6 +26,9 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     email: Optional[str] = None
+
+class PlanUpdate(BaseModel):
+    plan: str
 
 # API Key Schemas
 class ApiKeyCreate(BaseModel):
