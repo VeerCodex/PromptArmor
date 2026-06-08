@@ -1,14 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import { Check, ShieldCheck, Zap, Server, CreditCard, Sparkles } from "lucide-react";
+import { getApiUrl, getAuthToken } from "@/utils/api";
 
 export default function PricingPage() {
   const { subscriptionPlan, changeSubscriptionPlan } = useApp();
   const [selectedPlan, setSelectedPlan] = useState<"Free" | "Starter" | "Pro" | null>(null);
-  const [checkoutSimOpen, setCheckoutSimOpen] = useState(false);
   const [loadingCheckout, setLoadingCheckout] = useState(false);
+
+  useEffect(() => {
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    document.body.appendChild(script);
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, []);
 
   const plans = [
     {
@@ -62,21 +72,99 @@ export default function PricingPage() {
     }
   ];
 
-  const handleSelectPlan = (planName: "Free" | "Starter" | "Pro") => {
+  const handleSelectPlan = async (planName: "Free" | "Starter" | "Pro") => {
     if (planName === subscriptionPlan) return;
-    setSelectedPlan(planName);
-    setCheckoutSimOpen(true);
-  };
 
-  const handleSimulatePayment = () => {
-    if (!selectedPlan) return;
+    if (planName === "Free") {
+      try {
+        await changeSubscriptionPlan("Free");
+      } catch (err) {
+        console.error(err);
+      }
+      return;
+    }
+
     setLoadingCheckout(true);
-    setTimeout(() => {
-      changeSubscriptionPlan(selectedPlan);
+    setSelectedPlan(planName);
+
+    try {
+      const apiHost = getApiUrl();
+      const token = getAuthToken();
+
+      const res = await fetch(`${apiHost}/billing/create-order`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ plan: planName }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || "Failed to create payment order");
+      }
+
+      const orderData = await res.json();
+
+      const options = {
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_mockKey12345",
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: "PromptArmor Security",
+        description: `${planName} Subscription Upgrade`,
+        order_id: orderData.id,
+        handler: async function (response: any) {
+          try {
+            setLoadingCheckout(true);
+            const verifyRes = await fetch(`${apiHost}/billing/verify`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_signature: response.razorpay_signature,
+                plan: planName
+              }),
+            });
+
+            if (!verifyRes.ok) {
+              throw new Error("Payment verification failed.");
+            }
+
+            changeSubscriptionPlan(planName);
+            alert(`Successfully upgraded to ${planName} Plan!`);
+          } catch (err: any) {
+            alert(err.message || "Payment verification failed.");
+          } finally {
+            setLoadingCheckout(false);
+            setSelectedPlan(null);
+          }
+        },
+        prefill: {
+          email: localStorage.getItem("promptarmor_user_email") || "",
+        },
+        theme: {
+          color: "#4f46e5",
+        },
+        modal: {
+          ondismiss: function () {
+            setLoadingCheckout(false);
+            setSelectedPlan(null);
+          }
+        }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err: any) {
+      alert(err.message || "Checkout failed to initialize.");
       setLoadingCheckout(false);
-      setCheckoutSimOpen(false);
       setSelectedPlan(null);
-    }, 1500); // 1.5s simulation delay
+    }
   };
 
   return (
@@ -163,76 +251,7 @@ export default function PricingPage() {
         })}
       </div>
 
-      {/* Stripe Payment Checkout Simulation Modal */}
-      {checkoutSimOpen && selectedPlan && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-gray-900 border border-gray-800 rounded-xl overflow-hidden shadow-2xl animate-in fade-in duration-300">
-            {/* Modal Header */}
-            <div className="p-6 border-b border-gray-800 flex items-center justify-between bg-gray-950/40">
-              <div className="flex items-center gap-2 text-indigo-400">
-                <CreditCard className="w-5 h-5" />
-                <span className="font-bold text-sm text-white">Stripe Checkout Simulator</span>
-              </div>
-              <button
-                onClick={() => setCheckoutSimOpen(false)}
-                className="text-gray-400 hover:text-gray-200 text-xs font-semibold px-2 py-1 bg-gray-800/40 hover:bg-gray-800 rounded border border-gray-800"
-              >
-                Cancel
-              </button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="p-6 space-y-4">
-              <div className="text-center p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-lg">
-                <p className="text-xs text-gray-400">Upgrading to Subscription</p>
-                <h3 className="text-lg font-bold text-white mt-1">PromptArmor {selectedPlan} Tier</h3>
-                <p className="text-xl font-extrabold text-indigo-400 mt-2">
-                  {plans.find((p) => p.name === selectedPlan)?.price} <span className="text-2xs text-gray-500">/ mo</span>
-                </p>
-              </div>
-
-              <div className="text-2xs text-gray-400 space-y-2">
-                <p>
-                  This modal simulates Stripe Checkout integration. In a full production build, this trigger calls Next.js API route `/api/checkout` to generate a Stripe Session, redirecting to standard Stripe pages:
-                </p>
-                <code className="block bg-gray-950 p-2.5 rounded border border-gray-800 font-mono text-3xs text-gray-300">
-                  stripe.checkout.sessions.create(&#123; <br />
-                  &nbsp;&nbsp;payment_method_types: [&apos;card&apos;], <br />
-                  &nbsp;&nbsp;line_items: [&#123; price: &apos;price_id_{selectedPlan.toLowerCase()}&apos;, quantity: 1 &#125;], <br />
-                  &nbsp;&nbsp;mode: &apos;subscription&apos;, <br />
-                  &nbsp;&nbsp;success_url: &apos;success?session_id=...&apos;, <br />
-                  &nbsp;&nbsp;cancel_url: &apos;cancel&apos; <br />
-                  &#125;)
-                </code>
-              </div>
-            </div>
-
-            {/* Modal Actions */}
-            <div className="p-6 bg-gray-950/40 border-t border-gray-800 flex justify-end gap-3">
-              <button
-                onClick={() => setCheckoutSimOpen(false)}
-                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-xs text-gray-300 font-medium rounded-lg transition-all"
-              >
-                Close
-              </button>
-              <button
-                onClick={handleSimulatePayment}
-                disabled={loadingCheckout}
-                className="flex items-center justify-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 text-xs text-white font-semibold rounded-lg transition-all shadow-md shadow-emerald-600/10"
-              >
-                {loadingCheckout ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>Simulate Payment Success</>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Razorpay Checkout completes natively without overlay simulation */}
     </>
   );
 }

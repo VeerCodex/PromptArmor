@@ -46,7 +46,7 @@ LEAKAGE_PATTERNS = {
     "confidential_leak": re.compile(r'\b(?:CONFIDENTIAL|INTERNAL ONLY|PROPRIETARY|CLASSIFIED)\b', re.IGNORECASE),
 }
 
-def scan_input_text(text: str) -> Tuple[int, str, Dict[str, Any]]:
+def scan_input_text(text: str, plan: str = "Free") -> Tuple[int, str, Dict[str, Any]]:
     """
     Scans input text for prompt injection, jailbreaks, and PII.
     Returns: (threat_score, threat_type, details)
@@ -63,14 +63,17 @@ def scan_input_text(text: str) -> Tuple[int, str, Dict[str, Any]]:
     emails = EMAIL_REGEX.findall(text)
     phones = PHONE_REGEX.findall(text)
     cards = []
-    card_candidates = CREDIT_CARD_REGEX.findall(text)
-    for c in card_candidates:
-        # Simple Luhn-like digits filter (remove spacing/dashes)
-        digits = re.sub(r'\D', '', c)
-        if len(digits) >= 13 and len(digits) <= 16:
-            cards.append(c)
+    names = []
     
-    names = NAME_INTRO_REGEX.findall(text)
+    if plan != "Free":
+        card_candidates = CREDIT_CARD_REGEX.findall(text)
+        for c in card_candidates:
+            # Simple Luhn-like digits filter (remove spacing/dashes)
+            digits = re.sub(r'\D', '', c)
+            if len(digits) >= 13 and len(digits) <= 16:
+                cards.append(c)
+        
+        names = NAME_INTRO_REGEX.findall(text)
 
     if emails:
         details["pii_detected"]["emails"] = list(set(emails))

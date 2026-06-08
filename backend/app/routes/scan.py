@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 import hashlib
 import json
 import logging
+import time
 
 from ..database import get_db, redis_client
 from .. import models, schemas, auth
@@ -15,6 +16,24 @@ def get_cache_key(direction: str, api_key_id: int, text: str) -> str:
     text_hash = hashlib.md5(text.encode("utf-8")).hexdigest()
     return f"scan_cache:{direction}:{api_key_id}:{text_hash}"
 
+def check_rate_limit(api_key_id: int, plan: str):
+    limit = 10 if plan == "Free" else (200 if plan == "Starter" else 1000)
+    current_ts = int(time.time() / 60)
+    key = f"rate_limit:{api_key_id}:{current_ts}"
+    try:
+        val = redis_client.get(key)
+        count = int(val.decode("utf-8") if isinstance(val, bytes) else val) if val else 0
+        if count >= limit:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Rate limit exceeded. Plan '{plan}' is limited to {limit} requests per minute. Upgrade your plan in the dashboard."
+            )
+        redis_client.setex(key, 65, str(count + 1))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Error checking rate limits: {e}")
+
 @router.post("/scan/input", response_model=schemas.ScanResponse)
 def scan_input(
     req: schemas.ScanRequest,
@@ -22,6 +41,7 @@ def scan_input(
     db: Session = Depends(get_db)
 ):
     current_user, api_key = api_auth
+    check_rate_limit(api_key.id, current_user.plan)
     text = req.text
     
     # 1. Check Cache
@@ -51,7 +71,7 @@ def scan_input(
         logger.warning(f"Error checking cache: {e}")
 
     # 2. Perform Scan
-    score, threat_type, details = scan_input_text(text)
+    score, threat_type, details = scan_input_text(text, plan=current_user.plan)
     response_data = {
         "threat_score": score,
         "threat_type": threat_type,
@@ -86,6 +106,12 @@ def scan_output(
     db: Session = Depends(get_db)
 ):
     current_user, api_key = api_auth
+    if current_user.plan == "Free":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Output scanning is only available on Starter or Pro plans. Upgrade your subscription plan in the dashboard."
+        )
+    check_rate_limit(api_key.id, current_user.plan)
     text = req.text
     
     # 1. Check Cache

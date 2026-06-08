@@ -5,7 +5,7 @@ import logging
 
 from .config import settings
 from .database import engine, Base
-from .routes import auth, scan, logs
+from .routes import auth, scan, logs, billing
 
 # Initialize database schemas
 try:
@@ -56,6 +56,7 @@ async def debug_exception_handler(request: Request, exc: Exception):
 app.include_router(auth.router, tags=["Authentication & Keys"])
 app.include_router(scan.router, tags=["LLM Security Scanning"])
 app.include_router(logs.router, tags=["Dashboard Monitoring"])
+app.include_router(billing.router, tags=["Billing & Payments"])
 
 @app.get("/")
 @app.get("/health")
