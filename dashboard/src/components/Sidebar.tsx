@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useApp } from "@/context/AppContext";
-import { Shield, LayoutDashboard, Key, CreditCard, Settings, LogOut, User } from "lucide-react";
+import { Shield, LayoutDashboard, Terminal, Code2, Key, CreditCard, Settings, LogOut, User, Sparkles } from "lucide-react";
 import clsx from "clsx";
 
 export default function Sidebar() {
@@ -12,6 +12,8 @@ export default function Sidebar() {
 
   const navItems = [
     { name: "Overview", href: "/dashboard", icon: LayoutDashboard },
+    { name: "Live Playground", href: "/dashboard/playground", icon: Terminal, badge: "Interactive" },
+    { name: "SDK Quickstart", href: "/dashboard/quickstart", icon: Code2 },
     { name: "API Keys", href: "/dashboard/keys", icon: Key },
     { name: "Pricing & Plans", href: "/dashboard/pricing", icon: CreditCard },
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
@@ -42,8 +44,13 @@ export default function Sidebar() {
                   : "text-gray-400 hover:bg-gray-800/50 hover:text-gray-200"
               )}
             >
-              <item.icon className="w-5 h-5" />
-              {item.name}
+              <item.icon className="w-5 h-5 shrink-0" />
+              <span className="flex-1">{item.name}</span>
+              {item.badge && (
+                <span className="text-3xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/25">
+                  {item.badge}
+                </span>
+              )}
             </Link>
           );
         })}

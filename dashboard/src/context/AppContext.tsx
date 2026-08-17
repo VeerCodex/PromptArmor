@@ -28,6 +28,21 @@ export interface ChartData {
   avg_score: number;
 }
 
+export interface ScanResult {
+  threat_score: number;
+  threat_type: string;
+  is_threat: boolean;
+  findings: {
+    jailbreaks_detected?: string[];
+    injections_detected?: string[];
+    pii_detected?: { emails?: string[]; phones?: string[]; credit_cards?: string[] };
+    leakage_detected?: string[];
+    [key: string]: any;
+  };
+  sanitized_text?: string;
+  latency_ms: number;
+}
+
 interface AppContextType {
   isAuthenticated: boolean;
   userEmail: string | null;
@@ -47,6 +62,8 @@ interface AppContextType {
   createApiKey: (name: string) => Promise<void>;
   revokeApiKey: (id: number) => Promise<void>;
   changeSubscriptionPlan: (plan: "Free" | "Starter" | "Pro") => void;
+  scanPromptDirect: (direction: "input" | "output", text: string) => Promise<ScanResult>;
+  exportLogs: (format: "json" | "csv") => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -344,6 +361,176 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const scanPromptDirect = async (direction: "input" | "output", text: string): Promise<ScanResult> => {
+    const startTime = performance.now();
+    const token = getAuthToken();
+
+    // 1. Demo Mode or Fallback simulation
+    if (token === "mock_jwt_token_for_promptarmor_demo_mode" || apiKeys.length === 0) {
+      let threat_score = 0;
+      let threat_type = "None";
+      const findings: any = {};
+      let sanitized_text = text;
+
+      const lower = text.toLowerCase();
+
+      // Check Jailbreak
+      if (/ignore (all|previous|past)|developer mode|dan mode|do anything now|unrestricted|jailbreak|override system/i.test(lower)) {
+        threat_score = 95;
+        threat_type = "Jailbreak";
+        findings.jailbreaks_detected = ["Instruction override / Safety bypass pattern detected"];
+      }
+      // Check Output Data Leakage
+      else if (/(sk_live_[0-9a-zA-Z]{16,}|sk_test_[0-9a-zA-Z]{16,}|AKIA[0-9A-Z]{16}|ghp_[0-9a-zA-Z]{20,})/i.test(text)) {
+        threat_score = 98;
+        threat_type = "Data Leakage";
+        findings.leakage_detected = ["API Secret Key / Private token pattern matched"];
+        sanitized_text = sanitized_text.replace(/(sk_live_[0-9a-zA-Z]{16,}|sk_test_[0-9a-zA-Z]{16,}|AKIA[0-9A-Z]{16}|ghp_[0-9a-zA-Z]{20,})/g, "[REDACTED_API_KEY]");
+      }
+      // Check PII
+      else if (/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(text) || /\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/.test(text) || /\b(?:\d{4}[-\s]?){3}\d{4}\b/.test(text)) {
+        threat_score = 68;
+        threat_type = "PII";
+        const emailMatches = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+        const phoneMatches = text.match(/\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/g) || [];
+        findings.pii_detected = {
+          emails: emailMatches,
+          phones: phoneMatches,
+        };
+        sanitized_text = sanitized_text
+          .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[REDACTED_EMAIL]")
+          .replace(/\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/g, "[REDACTED_PHONE]")
+          .replace(/\b(?:\d{4}[-\s]?){3}\d{4}\b/g, "[REDACTED_CARD]");
+      }
+      // Check Prompt Injection
+      else if (/(system prompt|translate into|base64|hidden instructions|payload|eval\(|drop table)/i.test(lower)) {
+        threat_score = 52;
+        threat_type = "Prompt Injection";
+        findings.injections_detected = ["Hidden instruction payload / SQL/Script indicator"];
+      }
+
+      const elapsed = Math.round(performance.now() - startTime + 8);
+      const is_threat = threat_score >= 40;
+
+      const newLog: ThreatLog = {
+        id: Date.now(),
+        direction,
+        text_preview: text.length > 90 ? text.substring(0, 90) + "..." : text,
+        threat_score,
+        threat_type,
+        details: findings,
+        created_at: new Date().toISOString(),
+      };
+
+      setThreatLogs((prev) => [newLog, ...prev]);
+      setStats((prev) => ({
+        ...prev,
+        totalScansToday: prev.totalScansToday + 1,
+        threatsBlockedToday: is_threat ? prev.threatsBlockedToday + 1 : prev.threatsBlockedToday,
+      }));
+
+      // Persist in demo mode storage if active
+      if (token === "mock_jwt_token_for_promptarmor_demo_mode") {
+        const savedLogs = localStorage.getItem("promptarmor_demo_logs");
+        const list = savedLogs ? JSON.parse(savedLogs) : [];
+        localStorage.setItem("promptarmor_demo_logs", JSON.stringify([newLog, ...list]));
+      }
+
+      return {
+        threat_score,
+        threat_type,
+        is_threat,
+        findings,
+        sanitized_text,
+        latency_ms: elapsed,
+      };
+    }
+
+    // 2. Live API Call
+    try {
+      const activeKey = apiKeys[0]?.key;
+      const endpoint = direction === "input" ? "/scan/input" : "/scan/output";
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (activeKey) {
+        headers["x-api-key"] = activeKey;
+      }
+
+      const data = await apiFetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ text }),
+      });
+
+      const elapsed = Math.round(performance.now() - startTime);
+
+      const newLog: ThreatLog = {
+        id: Date.now(),
+        direction,
+        text_preview: text.length > 90 ? text.substring(0, 90) + "..." : text,
+        threat_score: data.threat_score,
+        threat_type: data.threat_type || "None",
+        details: data.details || {},
+        created_at: new Date().toISOString(),
+      };
+
+      setThreatLogs((prev) => [newLog, ...prev]);
+      setStats((prev) => ({
+        ...prev,
+        totalScansToday: prev.totalScansToday + 1,
+        threatsBlockedToday: data.threat_score >= 40 ? prev.threatsBlockedToday + 1 : prev.threatsBlockedToday,
+      }));
+
+      return {
+        threat_score: data.threat_score,
+        threat_type: data.threat_type || "None",
+        is_threat: data.threat_score >= 40,
+        findings: data.details || {},
+        sanitized_text: data.sanitized_text || text,
+        latency_ms: elapsed,
+      };
+    } catch (err: any) {
+      console.error("Direct scan failed", err);
+      throw err;
+    }
+  };
+
+  const exportLogs = (format: "json" | "csv") => {
+    if (threatLogs.length === 0) {
+      alert("No logs available to export.");
+      return;
+    }
+
+    if (format === "json") {
+      const jsonStr = JSON.stringify(threatLogs, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `promptarmor-threat-logs-${new Date().toISOString().split("T")[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      // CSV Export
+      const headers = ["ID", "Timestamp", "Direction", "Risk Score", "Threat Type", "Payload Preview"];
+      const rows = threatLogs.map((log) => [
+        log.id,
+        `"${new Date(log.created_at).toISOString()}"`,
+        `"${log.direction}"`,
+        log.threat_score,
+        `"${log.threat_type}"`,
+        `"${(log.text_preview || "").replace(/"/g, '""')}"`,
+      ]);
+      const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `promptarmor-threat-logs-${new Date().toISOString().split("T")[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -360,6 +547,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         createApiKey,
         revokeApiKey,
         changeSubscriptionPlan,
+        scanPromptDirect,
+        exportLogs,
       }}
     >
       {children}
